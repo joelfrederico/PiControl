@@ -1,0 +1,23 @@
+name: PiControl
+options:
+  bundleIdPrefix: com.joelfrederico
+targets:
+  PiControl:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - PiControl
+    info:
+      path: PiControl/Info.plist
+      properties:
+        NSBluetoothAlwaysUsageDescription: PiControl connects to your Raspberry Pi over Bluetooth to stream controller input.
+        UILaunchScreen: {}
+        UIRequiresFullScreen: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    settings:
+      base:
+        TARGETED_DEVICE_FAMILY: "1"
+        INFOPLIST_KEY_UIStatusBarHidden: true

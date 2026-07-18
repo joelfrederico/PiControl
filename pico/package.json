@@ -1,0 +1,11 @@
+{
+    "urls": [
+        ["picontrol/__init__.py", "github:joelfrederico/PiControl/pico/picontrol/__init__.py"],
+        ["picontrol/protocol.py", "github:joelfrederico/PiControl/pico/picontrol/protocol.py"],
+        ["picontrol/receiver.py", "github:joelfrederico/PiControl/pico/picontrol/receiver.py"]
+    ],
+    "deps": [
+        ["aioble", "latest"]
+    ],
+    "version": "0.1.0"
+}
