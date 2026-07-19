@@ -20,6 +20,8 @@ let serviceUUID = CBUUID(string: "b7f9a1e0-9c3d-4b6a-8a5e-1f2d3c4b0001")
 let inputCharUUID = CBUUID(string: "b7f9a1e0-9c3d-4b6a-8a5e-1f2d3c4b0002")
 let configCharUUID = CBUUID(string: "b7f9a1e0-9c3d-4b6a-8a5e-1f2d3c4b0003")
 let configVersion: UInt8 = 1
+let hapticsCharUUID = CBUUID(string: "b7f9a1e0-9c3d-4b6a-8a5e-1f2d3c4b0004")
+let hapticsVersion: UInt8 = 1
 let localName = "PiControl-mac"
 let packetSize = 17
 let protocolVersion: UInt8 = 2
@@ -94,9 +96,13 @@ final class ReceiverModel: NSObject, ObservableObject, CBPeripheralManagerDelega
     @Published var wantMotion = true { didSet { pushConfig() } }
     @Published var wantAnalog = true { didSet { pushConfig() } }
     @Published var rateHz = 60 { didSet { pushConfig() } }
+    /// Both 0...1; pushed to the phone as rumble intensity/sharpness.
+    @Published var hapticIntensity = 0.0 { didSet { pushHaptics() } }
+    @Published var hapticSharpness = 0.5 { didSet { pushHaptics() } }
 
     private var manager: CBPeripheralManager!
     private var configCharacteristic: CBMutableCharacteristic?
+    private var hapticsCharacteristic: CBMutableCharacteristic?
     private var lastEdge = Snapshot()
     private var lastPacket: Date?
     private var windowStart = Date()
@@ -142,8 +148,15 @@ final class ReceiverModel: NSObject, ObservableObject, CBPeripheralManagerDelega
                 permissions: [.readable]
             )
             configCharacteristic = config
+            let hapticsChar = CBMutableCharacteristic(
+                type: hapticsCharUUID,
+                properties: [.read, .notify],
+                value: nil,
+                permissions: [.readable]
+            )
+            hapticsCharacteristic = hapticsChar
             let service = CBMutableService(type: serviceUUID, primary: true)
-            service.characteristics = [input, config]
+            service.characteristics = [input, config, hapticsChar]
             peripheral.add(service)
         case .unauthorized:
             status = "Bluetooth permission denied — allow it in System Settings"
@@ -190,13 +203,28 @@ final class ReceiverModel: NSObject, ObservableObject, CBPeripheralManagerDelega
                             onSubscribedCentrals: nil)
     }
 
+    private var hapticsData: Data {
+        Data([hapticsVersion,
+              UInt8(clamping: Int(hapticIntensity * 255)),
+              UInt8(clamping: Int(hapticSharpness * 255))])
+    }
+
+    private func pushHaptics() {
+        guard let hapticsCharacteristic, manager != nil else { return }
+        manager.updateValue(hapticsData, for: hapticsCharacteristic,
+                            onSubscribedCentrals: nil)
+    }
+
     func peripheralManager(_ peripheral: CBPeripheralManager,
                            didReceiveRead request: CBATTRequest) {
-        guard request.characteristic.uuid == configCharUUID else {
+        let data: Data
+        switch request.characteristic.uuid {
+        case configCharUUID: data = configData
+        case hapticsCharUUID: data = hapticsData
+        default:
             peripheral.respond(to: request, withResult: .attributeNotFound)
             return
         }
-        let data = configData
         guard request.offset <= data.count else {
             peripheral.respond(to: request, withResult: .invalidOffset)
             return
@@ -436,6 +464,27 @@ struct ReceiverView: View {
                 }
                 .pickerStyle(.segmented)
                 .frame(width: 190)
+                Spacer()
+            }
+            .font(.caption)
+
+            HStack(spacing: 12) {
+                Text("Vibration:")
+                    .foregroundStyle(.secondary)
+                Text("intensity")
+                    .foregroundStyle(.secondary)
+                Slider(value: $model.hapticIntensity, in: 0...1)
+                    .frame(width: 130)
+                Text("\(Int(model.hapticIntensity * 100))%")
+                    .font(.caption.monospacedDigit())
+                    .frame(width: 36, alignment: .trailing)
+                Text("sharpness")
+                    .foregroundStyle(.secondary)
+                Slider(value: $model.hapticSharpness, in: 0...1)
+                    .frame(width: 130)
+                Text("\(Int(model.hapticSharpness * 100))%")
+                    .font(.caption.monospacedDigit())
+                    .frame(width: 36, alignment: .trailing)
                 Spacer()
             }
             .font(.caption)

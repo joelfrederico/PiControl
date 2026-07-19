@@ -21,12 +21,15 @@ from bless import (
 from .protocol import (
     CONFIG_CHAR_UUID,
     DEFAULT_RATE_HZ,
+    HAPTICS_CHAR_UUID,
     INPUT_CHAR_UUID,
     SERVICE_UUID,
+    HapticsCommand,
     InputTracker,
     ProtocolError,
     ReceiverConfig,
     encode_config,
+    encode_haptics,
 )
 
 logger = logging.getLogger(__name__)
@@ -61,6 +64,7 @@ class PiControlReceiver:
         self.config = ReceiverConfig(wants_motion=wants_motion,
                                      wants_analog=wants_analog,
                                      rate_hz=rate_hz)
+        self.haptics = HapticsCommand()
         self._server = None
         self._queue = asyncio.Queue()
 
@@ -83,6 +87,14 @@ class PiControlReceiver:
             (GATTCharacteristicProperties.read
              | GATTCharacteristicProperties.notify),
             encode_config(self.config),
+            GATTAttributePermissions.readable,
+        )
+        await self._server.add_new_characteristic(
+            SERVICE_UUID,
+            HAPTICS_CHAR_UUID,
+            (GATTCharacteristicProperties.read
+             | GATTCharacteristicProperties.notify),
+            encode_haptics(self.haptics),
             GATTAttributePermissions.readable,
         )
         await self._server.start()
@@ -111,6 +123,18 @@ class PiControlReceiver:
                 characteristic.value = encode_config(self.config)
                 self._server.update_value(SERVICE_UUID, CONFIG_CHAR_UUID)
         logger.info("config changed: %r", self.config)
+
+    def set_haptics(self, intensity, sharpness=None):
+        """Drive the phone's vibration: intensity 0.0-1.0 (0 = off),
+        optional sharpness 0.0-1.0 (0 = dull rumble, 1 = crisp buzz)."""
+        self.haptics.intensity = intensity
+        if sharpness is not None:
+            self.haptics.sharpness = sharpness
+        if self._server is not None:
+            characteristic = self._server.get_characteristic(HAPTICS_CHAR_UUID)
+            if characteristic is not None:
+                characteristic.value = encode_haptics(self.haptics)
+                self._server.update_value(SERVICE_UUID, HAPTICS_CHAR_UUID)
 
     async def __aenter__(self):
         await self.start()

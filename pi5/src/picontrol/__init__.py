@@ -14,6 +14,7 @@ from .protocol import (
     BUTTON_TOUCHPAD,
     BUTTON_TRIANGLE,
     ControllerState,
+    HapticsCommand,
     InputTracker,
     ProtocolError,
     ReceiverConfig,
@@ -30,6 +31,7 @@ def __getattr__(name):
 
 __all__ = [
     "ControllerState",
+    "HapticsCommand",
     "InputTracker",
     "PiControlReceiver",
     "ProtocolError",

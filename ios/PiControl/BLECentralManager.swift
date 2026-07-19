@@ -33,6 +33,8 @@ final class BLECentralManager: NSObject, ObservableObject {
     private var peripheral: CBPeripheral?
     private var inputCharacteristic: CBCharacteristic?
     private var configCharacteristic: CBCharacteristic?
+    private var hapticsCharacteristic: CBCharacteristic?
+    private let haptics = HapticsManager()
     private var sendTimer: Timer?
     private var seq: UInt8 = 0
 
@@ -95,9 +97,11 @@ final class BLECentralManager: NSObject, ObservableObject {
 
     private func cleanupConnection() {
         stopSending()
+        MainActor.assumeIsolated { haptics.stop() }
         peripheral = nil
         inputCharacteristic = nil
         configCharacteristic = nil
+        hapticsCharacteristic = nil
         receiverConfig = PiControlProtocol.ReceiverConfig()
     }
 }
@@ -152,7 +156,8 @@ extension BLECentralManager: CBPeripheralDelegate {
             return
         }
         peripheral.discoverCharacteristics([PiControlProtocol.inputCharacteristicUUID,
-                                            PiControlProtocol.configCharacteristicUUID],
+                                            PiControlProtocol.configCharacteristicUUID,
+                                            PiControlProtocol.hapticsCharacteristicUUID],
                                            for: service)
     }
 
@@ -176,20 +181,38 @@ extension BLECentralManager: CBPeripheralDelegate {
             peripheral.setNotifyValue(true, for: config)
         }
 
+        // Haptics characteristic is likewise optional: subscribe so the
+        // receiver can drive vibration like console-to-controller rumble.
+        if let hapticsChar = service.characteristics?
+            .first(where: { $0.uuid == PiControlProtocol.hapticsCharacteristicUUID }) {
+            hapticsCharacteristic = hapticsChar
+            peripheral.readValue(for: hapticsChar)
+            peripheral.setNotifyValue(true, for: hapticsChar)
+        }
+
         state = .connected(name: peripheral.name ?? "PiControl")
         startSending()
     }
 
     func peripheral(_ peripheral: CBPeripheral,
                     didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
-        guard characteristic.uuid == PiControlProtocol.configCharacteristicUUID,
-              error == nil else { return }
-        let config = PiControlProtocol.ReceiverConfig.decode(characteristic.value)
-        guard config != receiverConfig else { return }
-        receiverConfig = config
-        if sendTimer != nil {
-            stopSending()
-            startSending()
+        guard error == nil else { return }
+        switch characteristic.uuid {
+        case PiControlProtocol.configCharacteristicUUID:
+            let config = PiControlProtocol.ReceiverConfig.decode(characteristic.value)
+            guard config != receiverConfig else { return }
+            receiverConfig = config
+            if sendTimer != nil {
+                stopSending()
+                startSending()
+            }
+        case PiControlProtocol.hapticsCharacteristicUUID:
+            let command = PiControlProtocol.HapticsCommand.decode(characteristic.value)
+            MainActor.assumeIsolated {
+                haptics.set(intensity: command.intensity, sharpness: command.sharpness)
+            }
+        default:
+            break
         }
     }
 }

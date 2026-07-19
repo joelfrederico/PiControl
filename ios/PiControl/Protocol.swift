@@ -11,6 +11,7 @@ enum PiControlProtocol {
     static let serviceUUID = CBUUID(string: "b7f9a1e0-9c3d-4b6a-8a5e-1f2d3c4b0001")
     static let inputCharacteristicUUID = CBUUID(string: "b7f9a1e0-9c3d-4b6a-8a5e-1f2d3c4b0002")
     static let configCharacteristicUUID = CBUUID(string: "b7f9a1e0-9c3d-4b6a-8a5e-1f2d3c4b0003")
+    static let hapticsCharacteristicUUID = CBUUID(string: "b7f9a1e0-9c3d-4b6a-8a5e-1f2d3c4b0004")
 
     static let packetSize = 17
 
@@ -108,6 +109,24 @@ enum PiControlProtocol {
                 wantsAnalog: bytes[1] & wantAnalogFlag != 0,
                 rateHz: max(1, min(120, Int(bytes[2])))
             )
+        }
+    }
+
+    /// Receiver-commanded vibration, served on the haptics characteristic
+    /// (struct `<BBB`: version, intensity, sharpness; both 0-255 on the
+    /// wire, 0-1 here). Lenient decode: unparseable means "off".
+    struct HapticsCommand: Equatable {
+        var intensity = 0.0
+        var sharpness = 0.5
+
+        static let version: UInt8 = 1
+
+        static func decode(_ data: Data?) -> HapticsCommand {
+            guard let data, data.count == 3 else { return HapticsCommand() }
+            let bytes = [UInt8](data)
+            guard bytes[0] == version else { return HapticsCommand() }
+            return HapticsCommand(intensity: Double(bytes[1]) / 255,
+                                  sharpness: Double(bytes[2]) / 255)
         }
     }
 }

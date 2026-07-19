@@ -49,7 +49,9 @@ Rules, enforced partly by tests:
   build the app. The receiver **config** struct (`<BBB`, served on the
   `…0003` characteristic, read+notify) follows the same checklist and has
   its own version byte; the phone parses it leniently (unparseable →
-  defaults: everything on, 60 Hz).
+  defaults: everything on, 60 Hz). The **haptics** struct (`<BBB` on
+  `…0004`, read+notify: version, intensity, sharpness) works the same
+  way — receiver → phone rumble, lenient decode meaning "off".
 - State tracking lives in the protocol library (`InputTracker`: latest
   state, button edges, seq-gap loss counting) — *staleness* detection stays
   in receivers, because MicroPython has no portable wall clock. Don't move

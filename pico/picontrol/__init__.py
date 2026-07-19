@@ -14,6 +14,7 @@ from .protocol import (
     BUTTON_TOUCHPAD,
     BUTTON_TRIANGLE,
     ControllerState,
+    HapticsCommand,
     InputTracker,
     ProtocolError,
     ReceiverConfig,

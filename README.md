@@ -44,6 +44,7 @@ controller input; the receiver synthesizes controller behavior locally.
 | Service UUID | `b7f9a1e0-9c3d-4b6a-8a5e-1f2d3c4b0001` |
 | Input characteristic UUID | `b7f9a1e0-9c3d-4b6a-8a5e-1f2d3c4b0002` (write, write-without-response) |
 | Config characteristic UUID | `b7f9a1e0-9c3d-4b6a-8a5e-1f2d3c4b0003` (read, notify; optional) |
+| Haptics characteristic UUID | `b7f9a1e0-9c3d-4b6a-8a5e-1f2d3c4b0004` (read, notify; optional) |
 | Advertised names | `PiControl-pi5`, `PiControl-pico` (configurable) |
 
 ## Receiver config
@@ -60,6 +61,17 @@ layout never changes; fields the receiver didn't ask for are just zeroed:
 clearing the motion flag stops CoreMotion and zeroes pitch/roll/yaw,
 clearing the analog flag zeroes sticks and triggers (buttons and d-pad are
 digital and always sent).
+
+## Haptics
+
+The receiver drives the phone's vibration — console-to-controller rumble,
+inverted like everything else here — via the haptics characteristic:
+struct `<BBB` (3 bytes): version (currently `1`), intensity 0–255 (0 =
+off), sharpness 0–255 (0 = dull rumble, 255 = crisp buzz; the CoreHaptics
+analog of the DualSense's low/high-frequency motor split). The phone
+subscribes and applies changes immediately (`receiver.set_haptics(0.7)`),
+and vibration stops on disconnect. Optional and leniently parsed, like
+the config characteristic.
 
 ## Input packet
 

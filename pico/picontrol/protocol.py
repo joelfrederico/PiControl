@@ -13,6 +13,7 @@ PROTOCOL_VERSION = 2
 SERVICE_UUID = "b7f9a1e0-9c3d-4b6a-8a5e-1f2d3c4b0001"
 INPUT_CHAR_UUID = "b7f9a1e0-9c3d-4b6a-8a5e-1f2d3c4b0002"
 CONFIG_CHAR_UUID = "b7f9a1e0-9c3d-4b6a-8a5e-1f2d3c4b0003"
+HAPTICS_CHAR_UUID = "b7f9a1e0-9c3d-4b6a-8a5e-1f2d3c4b0004"
 
 PACKET_FORMAT = "<BBHBbbbbBBhhh"
 PACKET_SIZE = struct.calcsize(PACKET_FORMAT)  # 17 bytes
@@ -250,3 +251,50 @@ def decode_config(data):
         wants_analog=bool(flags & CONFIG_WANT_ANALOG),
         rate_hz=max(1, min(120, rate)),
     )
+
+
+# Haptics: served by the receiver on HAPTICS_CHAR_UUID (read+notify) to
+# drive the phone's vibration, like a console driving controller rumble.
+# Intensity and sharpness are 0.0-1.0 (CoreHaptics' two axes; sharpness
+# is the analog of the DualSense's low/high frequency motor split).
+
+HAPTICS_VERSION = 1
+HAPTICS_FORMAT = "<BBB"
+HAPTICS_SIZE = struct.calcsize(HAPTICS_FORMAT)  # 3 bytes
+
+
+class HapticsCommand:
+    def __init__(self, intensity=0.0, sharpness=0.5):
+        self.intensity = intensity
+        self.sharpness = sharpness
+
+    def __eq__(self, other):
+        if not isinstance(other, HapticsCommand):
+            return NotImplemented
+        return (self.intensity == other.intensity
+                and self.sharpness == other.sharpness)
+
+    def __repr__(self):
+        return ("HapticsCommand(intensity=%.3f, sharpness=%.3f)"
+                % (self.intensity, self.sharpness))
+
+
+def _unit_to_wire(value):
+    return max(0, min(255, int(round(value * 255))))
+
+
+def encode_haptics(command):
+    return struct.pack(HAPTICS_FORMAT, HAPTICS_VERSION,
+                       _unit_to_wire(command.intensity),
+                       _unit_to_wire(command.sharpness))
+
+
+def decode_haptics(data):
+    """Decode a haptics value, tolerantly: anything unparseable yields the
+    default (vibration off)."""
+    if data is None or len(data) != HAPTICS_SIZE:
+        return HapticsCommand()
+    version, intensity, sharpness = struct.unpack(HAPTICS_FORMAT, data)
+    if version != HAPTICS_VERSION:
+        return HapticsCommand()
+    return HapticsCommand(intensity=intensity / 255, sharpness=sharpness / 255)

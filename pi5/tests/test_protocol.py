@@ -136,6 +136,32 @@ def test_config_rate_clamped():
     assert protocol.decode_config(protocol.encode_config(config)).rate_hz == 120
 
 
+def test_haptics_round_trip():
+    command = protocol.HapticsCommand(intensity=1.0, sharpness=0.0)
+    assert protocol.decode_haptics(protocol.encode_haptics(command)) == command
+
+
+def test_haptics_quantized_round_trip():
+    command = protocol.HapticsCommand(intensity=0.5, sharpness=0.25)
+    decoded = protocol.decode_haptics(protocol.encode_haptics(command))
+    assert decoded.intensity == pytest.approx(0.5, abs=1 / 255)
+    assert decoded.sharpness == pytest.approx(0.25, abs=1 / 255)
+
+
+def test_haptics_decode_is_lenient():
+    off = protocol.HapticsCommand()
+    assert protocol.decode_haptics(None) == off
+    assert protocol.decode_haptics(b"") == off
+    assert protocol.decode_haptics(bytes([99, 255, 255])) == off  # bad version
+
+
+def test_haptics_clamped():
+    command = protocol.HapticsCommand(intensity=7.0, sharpness=-2.0)
+    decoded = protocol.decode_haptics(protocol.encode_haptics(command))
+    assert decoded.intensity == 1.0
+    assert decoded.sharpness == 0.0
+
+
 def test_pico_copy_is_identical():
     """pico/picontrol/protocol.py must stay a verbatim copy of the pi5 one."""
     pi5 = REPO_ROOT / "pi5" / "src" / "picontrol" / "protocol.py"

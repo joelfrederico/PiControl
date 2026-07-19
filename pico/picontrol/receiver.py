@@ -16,12 +16,15 @@ import bluetooth
 from .protocol import (
     CONFIG_CHAR_UUID,
     DEFAULT_RATE_HZ,
+    HAPTICS_CHAR_UUID,
     INPUT_CHAR_UUID,
     SERVICE_UUID,
+    HapticsCommand,
     InputTracker,
     ProtocolError,
     ReceiverConfig,
     encode_config,
+    encode_haptics,
 )
 
 DEFAULT_NAME = "PiControl-pico"
@@ -70,8 +73,16 @@ class PiControlReceiver:
             read=True,
             notify=True,
         )
+        self._haptics_char = aioble.Characteristic(
+            service,
+            bluetooth.UUID(HAPTICS_CHAR_UUID),
+            read=True,
+            notify=True,
+        )
         aioble.register_services(service)
         self._config_char.write(encode_config(self.config))
+        self.haptics = HapticsCommand()
+        self._haptics_char.write(encode_haptics(self.haptics))
 
     def set_config(self, wants_motion=None, wants_analog=None, rate_hz=None):
         """Update the served config and notify a connected phone.
@@ -85,6 +96,14 @@ class PiControlReceiver:
         if rate_hz is not None:
             self.config.rate_hz = rate_hz
         self._config_char.write(encode_config(self.config), send_update=True)
+
+    def set_haptics(self, intensity, sharpness=None):
+        """Drive the phone's vibration: intensity 0.0-1.0 (0 = off),
+        optional sharpness 0.0-1.0 (0 = dull rumble, 1 = crisp buzz)."""
+        self.haptics.intensity = intensity
+        if sharpness is not None:
+            self.haptics.sharpness = sharpness
+        self._haptics_char.write(encode_haptics(self.haptics), send_update=True)
 
     async def run(self):
         while True:
