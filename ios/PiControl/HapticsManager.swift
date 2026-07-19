@@ -63,6 +63,9 @@ final class HapticsManager {
 
         if player == nil {
             try engine.start()
+            // One long event rather than a short looped one: looping a
+            // continuous event re-attacks its envelope at every loop
+            // boundary, which is feelable as a periodic hiccup.
             let event = CHHapticEvent(
                 eventType: .hapticContinuous,
                 parameters: [
@@ -70,7 +73,7 @@ final class HapticsManager {
                     CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.5),
                 ],
                 relativeTime: 0,
-                duration: 1.0
+                duration: 3600
             )
             let pattern = try CHHapticPattern(events: [event], parameters: [])
             let player = try engine.makeAdvancedPlayer(with: pattern)
