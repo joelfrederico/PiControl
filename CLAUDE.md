@@ -129,6 +129,18 @@ cd pi5 && python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
 - **Packets are full-state, not deltas.** Every packet carries the entire
   controller state, so dropped write-without-response packets are harmless.
   Keep this property: it's what makes the link robust with zero retry logic.
+- **The constant-rate send loop must stay dumb — do not "optimize" it.**
+  Idle suppression and send-on-change were both considered and rejected
+  (2026-07). The steady full-state stream does four jobs at once: input
+  delivery, dead-man signal (silence must always mean "controller gone —
+  stop the motors", never "idle"), drop self-healing (a lost "all zeros"
+  release packet is corrected ~16 ms later; with idle silence it never
+  would be, freezing the receiver at a stale non-idle state), and a
+  predictable rate contract. Send-on-change alone buys single-digit ms —
+  writes wait for the next BLE connection event (~15–30 ms, iOS-negotiated)
+  regardless — while needing a burst limiter against 120 Hz stick-drag
+  events. The tuning lever already exists: receivers request a different
+  rate_hz (1–120) via the config characteristic.
 - The `seq` byte increments only on packets actually sent, so consecutive
   seq values at the receiver do NOT prove no 60 Hz ticks were skipped —
   watch the receiver's pkt/s display instead.
