@@ -99,14 +99,34 @@ final class FakeReceiver: NSObject, CBPeripheralManagerDelegate {
         print("central subscribed: \(central.identifier)")
     }
 
+    private var lastButtons: UInt16 = 0
+    private var lastHat: UInt8 = 0
+    private var windowStart = Date()
+    private var windowCount = 0
+
     func peripheralManager(_ peripheral: CBPeripheralManager,
                            didReceiveWrite requests: [CBATTRequest]) {
         for request in requests {
             packetCount += 1
-            if let value = request.value {
-                // 60 Hz is spammy; print every packet for now since this is
-                // a debugging tool and seeing each one is the point.
-                print("[\(packetCount)] \(describe(packet: value))")
+            if let value = request.value, value.count == packetSize {
+                let bytes = [UInt8](value)
+                let buttons = UInt16(bytes[2]) | (UInt16(bytes[3]) << 8)
+                let hat = bytes[4]
+                // Print a timestamped line on every button/d-pad edge, and a
+                // packet-rate line once a second, instead of 60 Hz spam.
+                if buttons != lastButtons || hat != lastHat {
+                    let stamp = String(format: "%.3f", Date().timeIntervalSince1970)
+                    print("[\(stamp)] \(describe(packet: value))")
+                    lastButtons = buttons
+                    lastHat = hat
+                }
+                windowCount += 1
+                let elapsed = Date().timeIntervalSince(windowStart)
+                if elapsed >= 1.0 {
+                    print(String(format: "rate: %.0f pkt/s", Double(windowCount) / elapsed))
+                    windowStart = Date()
+                    windowCount = 0
+                }
             }
             if request.characteristic.properties.contains(.write) {
                 peripheral.respond(to: request, withResult: .success)

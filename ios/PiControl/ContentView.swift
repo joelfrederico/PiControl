@@ -1,16 +1,78 @@
 import SwiftUI
 
+/// Handles touch-down/up with raw `touches*` overrides instead of gesture
+/// recognizers. The system gesture gate near physical screen edges delays
+/// *recognizer-based* input (SwiftUI gestures included) while it rules out a
+/// system swipe — but raw touch delivery is immediate, which is how games get
+/// lag-free edge buttons.
+private final class RawTouchView: UIView {
+    var hitInset: CGFloat = 0
+    var onPress: ((Bool) -> Void)?
+    private var activeTouches = Set<UITouch>()
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        bounds.insetBy(dx: -hitInset, dy: -hitInset).contains(point)
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if activeTouches.isEmpty { onPress?(true) }
+        activeTouches.formUnion(touches)
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        endTouches(touches)
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        endTouches(touches)
+    }
+
+    private func endTouches(_ touches: Set<UITouch>) {
+        activeTouches.subtract(touches)
+        if activeTouches.isEmpty { onPress?(false) }
+    }
+}
+
+/// Overlay that reports press state (touch-down true, all-touches-up false)
+/// via raw UIKit touches. `hitInset` grows the tappable area beyond the
+/// overlaid view's bounds.
+private struct RawPressHandler: UIViewRepresentable {
+    var hitInset: CGFloat = 0
+    let onPress: (Bool) -> Void
+
+    func makeUIView(context: Context) -> RawTouchView {
+        let view = RawTouchView()
+        view.backgroundColor = .clear
+        view.isMultipleTouchEnabled = true
+        return view
+    }
+
+    func updateUIView(_ view: RawTouchView, context: Context) {
+        view.hitInset = hitInset
+        view.onPress = onPress
+    }
+}
+
 struct ContentView: View {
     @EnvironmentObject var ble: BLECentralManager
     @EnvironmentObject var state: ControllerState
 
     var body: some View {
-        switch ble.state {
-        case .connected:
-            ControllerView()
-        default:
-            DevicePickerView()
+        Group {
+            switch ble.state {
+            case .connected:
+                ControllerView()
+            default:
+                DevicePickerView()
+            }
         }
+        // Applied at the root (not on ControllerView) so the preference is
+        // active from launch: iOS defers edge touches for Control Center /
+        // notification / home-indicator swipes, which made edge buttons feel
+        // laggy, and SwiftUI doesn't reliably pick these up from a view that
+        // appears later.
+        .defersSystemGestures(on: .all)
+        .persistentSystemOverlays(.hidden)
     }
 }
 
@@ -106,7 +168,7 @@ struct HoldButton: View {
     let button: PiControlProtocol.Buttons
     var small = false
 
-    @GestureState private var pressed = false
+    @State private var pressed = false
 
     var body: some View {
         Text(label)
@@ -115,13 +177,10 @@ struct HoldButton: View {
             .background(pressed ? Color.accentColor : Color(.systemGray5))
             .foregroundStyle(pressed ? .white : .primary)
             .clipShape(Capsule())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .updating($pressed) { _, isPressed, _ in isPressed = true }
-            )
-            .onChange(of: pressed) { _, isPressed in
-                state.press(button, isPressed)
-            }
+            .overlay(RawPressHandler(hitInset: 8) { isDown in
+                pressed = isDown
+                state.press(button, isDown)
+            })
     }
 }
 
@@ -144,7 +203,7 @@ struct FaceButton: View {
     let button: PiControlProtocol.Buttons
     let color: Color
 
-    @GestureState private var pressed = false
+    @State private var pressed = false
 
     var body: some View {
         Image(systemName: symbol)
@@ -153,13 +212,10 @@ struct FaceButton: View {
             .frame(width: 52, height: 52)
             .background(pressed ? color.opacity(0.35) : Color(.systemGray5))
             .clipShape(Circle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .updating($pressed) { _, isPressed, _ in isPressed = true }
-            )
-            .onChange(of: pressed) { _, isPressed in
-                state.press(button, isPressed)
-            }
+            .overlay(RawPressHandler(hitInset: 8) { isDown in
+                pressed = isDown
+                state.press(button, isDown)
+            })
     }
 }
 
@@ -193,21 +249,18 @@ struct DPadButton: View {
     let dx: Int
     let dy: Int
 
-    @GestureState private var pressed = false
+    @State private var pressed = false
 
     var body: some View {
         Image(systemName: symbol)
             .frame(width: 40, height: 40)
             .background(pressed ? Color.accentColor : Color(.systemGray5))
             .foregroundStyle(pressed ? .white : .primary)
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .updating($pressed) { _, isPressed, _ in isPressed = true }
-            )
-            .onChange(of: pressed) { _, isPressed in
-                state.dpadX = isPressed ? dx : 0
-                state.dpadY = isPressed ? dy : 0
-            }
+            .overlay(RawPressHandler(hitInset: 6) { isDown in
+                pressed = isDown
+                state.dpadX = isDown ? dx : 0
+                state.dpadY = isDown ? dy : 0
+            })
     }
 }
 
