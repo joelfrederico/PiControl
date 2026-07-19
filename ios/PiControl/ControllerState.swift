@@ -10,6 +10,12 @@ final class ControllerState: ObservableObject {
     @Published var leftStick: CGPoint = .zero   // components in -1...1
     @Published var rightStick: CGPoint = .zero
 
+    /// Fused device attitude in radians (portrait device frame), written by
+    /// MotionManager while connected; zeros when motion is unavailable.
+    var pitch: Double = 0
+    var roll: Double = 0
+    var yaw: Double = 0
+
     func press(_ button: PiControlProtocol.Buttons, _ pressed: Bool) {
         if pressed {
             buttons.insert(button)
@@ -27,17 +33,21 @@ final class ControllerState: ObservableObject {
         buttons.contains(button) ? 255 : 0
     }
 
-    func encodePacket(seq: UInt8) -> Data {
+    /// When the receiver's config says it doesn't want analog data, the
+    /// stick and trigger fields are zeroed (the packet layout never
+    /// changes). Buttons and d-pad are digital and always sent.
+    func encodePacket(seq: UInt8, includeAnalog: Bool = true) -> Data {
         PiControlProtocol.encode(
             buttons: buttons.intersection(.allTransmitted),
             hat: PiControlProtocol.Hat(x: dpadX, y: dpadY),
-            lx: Self.axis(leftStick.x),
-            ly: Self.axis(leftStick.y),
-            rx: Self.axis(rightStick.x),
-            ry: Self.axis(rightStick.y),
-            l2: trigger(.l2Trigger),
-            r2: trigger(.r2Trigger),
-            seq: seq
+            lx: includeAnalog ? Self.axis(leftStick.x) : 0,
+            ly: includeAnalog ? Self.axis(leftStick.y) : 0,
+            rx: includeAnalog ? Self.axis(rightStick.x) : 0,
+            ry: includeAnalog ? Self.axis(rightStick.y) : 0,
+            l2: includeAnalog ? trigger(.l2Trigger) : 0,
+            r2: includeAnalog ? trigger(.r2Trigger) : 0,
+            seq: seq,
+            pitch: pitch, roll: roll, yaw: yaw
         )
     }
 }

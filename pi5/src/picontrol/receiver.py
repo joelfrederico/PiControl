@@ -3,6 +3,10 @@
 The Pi advertises the PiControl GATT service; the iPhone connects as central
 and streams input packets via write-without-response. Each decoded packet is
 delivered to the `on_state` callback and to the `states()` async iterator.
+
+The receiver also serves a config characteristic (read+notify) telling the
+phone what it wants: motion data, analog data, and packet rate. Change it
+mid-connection with `set_config(...)` — the phone applies it live.
 """
 
 import asyncio
@@ -14,7 +18,16 @@ from bless import (
     GATTCharacteristicProperties,
 )
 
-from .protocol import INPUT_CHAR_UUID, SERVICE_UUID, ProtocolError, decode
+from .protocol import (
+    CONFIG_CHAR_UUID,
+    DEFAULT_RATE_HZ,
+    INPUT_CHAR_UUID,
+    SERVICE_UUID,
+    InputTracker,
+    ProtocolError,
+    ReceiverConfig,
+    encode_config,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,17 +47,27 @@ class PiControlReceiver:
         async with PiControlReceiver() as receiver:
             async for state in receiver.states():
                 ...
+
+    `receiver.tracker` exposes the latest state plus button edges and packet
+    loss (see protocol.InputTracker).
     """
 
-    def __init__(self, name=DEFAULT_NAME, on_state=None):
+    def __init__(self, name=DEFAULT_NAME, on_state=None,
+                 wants_motion=True, wants_analog=True,
+                 rate_hz=DEFAULT_RATE_HZ):
         self.name = name
         self.on_state = on_state
+        self.tracker = InputTracker()
+        self.config = ReceiverConfig(wants_motion=wants_motion,
+                                     wants_analog=wants_analog,
+                                     rate_hz=rate_hz)
         self._server = None
         self._queue = asyncio.Queue()
 
     async def start(self):
         self._server = BlessServer(name=self.name)
         self._server.write_request_func = self._on_write
+        self._server.read_request_func = self._on_read
         await self._server.add_new_service(SERVICE_UUID)
         await self._server.add_new_characteristic(
             SERVICE_UUID,
@@ -54,13 +77,40 @@ class PiControlReceiver:
             None,
             GATTAttributePermissions.writeable,
         )
+        await self._server.add_new_characteristic(
+            SERVICE_UUID,
+            CONFIG_CHAR_UUID,
+            (GATTCharacteristicProperties.read
+             | GATTCharacteristicProperties.notify),
+            encode_config(self.config),
+            GATTAttributePermissions.readable,
+        )
         await self._server.start()
-        logger.info("advertising as %r (service %s)", self.name, SERVICE_UUID)
+        logger.info("advertising as %r (service %s, config %r)",
+                    self.name, SERVICE_UUID, self.config)
 
     async def stop(self):
         if self._server is not None:
             await self._server.stop()
             self._server = None
+
+    def set_config(self, wants_motion=None, wants_analog=None, rate_hz=None):
+        """Update the served config and notify a connected phone.
+
+        Only the given fields change; the rest keep their current values.
+        """
+        if wants_motion is not None:
+            self.config.wants_motion = wants_motion
+        if wants_analog is not None:
+            self.config.wants_analog = wants_analog
+        if rate_hz is not None:
+            self.config.rate_hz = rate_hz
+        if self._server is not None:
+            characteristic = self._server.get_characteristic(CONFIG_CHAR_UUID)
+            if characteristic is not None:
+                characteristic.value = encode_config(self.config)
+                self._server.update_value(SERVICE_UUID, CONFIG_CHAR_UUID)
+        logger.info("config changed: %r", self.config)
 
     async def __aenter__(self):
         await self.start()
@@ -74,9 +124,12 @@ class PiControlReceiver:
         while True:
             yield await self._queue.get()
 
+    def _on_read(self, characteristic, **kwargs):
+        return characteristic.value
+
     def _on_write(self, characteristic, value, **kwargs):
         try:
-            state = decode(value)
+            state = self.tracker.feed(value)
         except ProtocolError as exc:
             logger.warning("dropping bad packet: %s", exc)
             return

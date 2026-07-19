@@ -2,7 +2,11 @@
 // and shows the controller input it receives in a window, so the iOS app
 // can be tested without a Pi. Run with:
 //
-//     swift mac/fake_receiver.swift
+//     mac/fake-receiver
+//
+// (the wrapper compiles this file and runs the binary; plain
+// `swift fake_receiver.swift` script mode dies on a JIT limitation —
+// see the wrapper for details).
 //
 // Uses CoreBluetooth directly (no Python/bless layer) so it exercises the
 // same stack the real receivers do from the phone's point of view. Button
@@ -14,9 +18,12 @@ import SwiftUI
 
 let serviceUUID = CBUUID(string: "b7f9a1e0-9c3d-4b6a-8a5e-1f2d3c4b0001")
 let inputCharUUID = CBUUID(string: "b7f9a1e0-9c3d-4b6a-8a5e-1f2d3c4b0002")
+let configCharUUID = CBUUID(string: "b7f9a1e0-9c3d-4b6a-8a5e-1f2d3c4b0003")
+let configVersion: UInt8 = 1
 let localName = "PiControl-mac"
-let packetSize = 11
-let protocolVersion: UInt8 = 1
+let packetSize = 17
+let protocolVersion: UInt8 = 2
+let attitudeScale = 32767.0 / Double.pi
 
 // MARK: - Protocol decoding
 
@@ -26,6 +33,8 @@ struct Snapshot: Equatable {
     var lx: Int8 = 0, ly: Int8 = 0, rx: Int8 = 0, ry: Int8 = 0
     var l2: UInt8 = 0, r2: UInt8 = 0
     var seq: UInt8 = 0
+    /// Attitude in radians (portrait device frame).
+    var pitch = 0.0, roll = 0.0, yaw = 0.0
 
     static let buttonNames: [(UInt16, String)] = [
         (1 << 0, "cross"), (1 << 1, "circle"), (1 << 2, "square"), (1 << 3, "triangle"),
@@ -43,6 +52,13 @@ struct Snapshot: Equatable {
         lx = Int8(bitPattern: bytes[5]); ly = Int8(bitPattern: bytes[6])
         rx = Int8(bitPattern: bytes[7]); ry = Int8(bitPattern: bytes[8])
         l2 = bytes[9]; r2 = bytes[10]
+        pitch = Self.attitude(bytes[11], bytes[12])
+        roll = Self.attitude(bytes[13], bytes[14])
+        yaw = Self.attitude(bytes[15], bytes[16])
+    }
+
+    private static func attitude(_ lo: UInt8, _ hi: UInt8) -> Double {
+        Double(Int16(bitPattern: UInt16(lo) | (UInt16(hi) << 8))) / attitudeScale
     }
 
     init() {}
@@ -73,17 +89,33 @@ final class ReceiverModel: NSObject, ObservableObject, CBPeripheralManagerDelega
     @Published var rate = 0.0
     @Published var stale = true
 
+    // Served config: what this receiver asks the phone for. Changing these
+    // notifies a connected phone, which applies them live.
+    @Published var wantMotion = true { didSet { pushConfig() } }
+    @Published var wantAnalog = true { didSet { pushConfig() } }
+    @Published var rateHz = 60 { didSet { pushConfig() } }
+
     private var manager: CBPeripheralManager!
+    private var configCharacteristic: CBMutableCharacteristic?
     private var lastEdge = Snapshot()
     private var lastPacket: Date?
     private var windowStart = Date()
     private var windowCount = 0
+    /// Most recent decoded packet. Kept out of @Published deliberately:
+    /// attitude noise makes every 60 Hz packet unique, and publishing each
+    /// one made SwiftUI re-render per packet on the same main queue that
+    /// CoreBluetooth delivers on — the backlog showed up as input lag.
+    /// A 30 Hz timer below forwards it to the published `snapshot` instead.
+    private var latest = Snapshot()
 
     func start() {
         manager = CBPeripheralManager(delegate: self, queue: .main)
-        // Mark the display stale (grayed out) when packets stop arriving.
-        Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+        // Display refresh, decoupled from packet arrival.
+        Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
             guard let self else { return }
+            if self.latest != self.snapshot {
+                self.snapshot = self.latest
+            }
             let stale = (self.lastPacket.map { Date().timeIntervalSince($0) } ?? .infinity) > 1.0
             if stale != self.stale {
                 self.stale = stale
@@ -95,14 +127,23 @@ final class ReceiverModel: NSObject, ObservableObject, CBPeripheralManagerDelega
     func peripheralManagerDidUpdateState(_ peripheral: CBPeripheralManager) {
         switch peripheral.state {
         case .poweredOn:
-            let characteristic = CBMutableCharacteristic(
+            let input = CBMutableCharacteristic(
                 type: inputCharUUID,
                 properties: [.write, .writeWithoutResponse],
                 value: nil,
                 permissions: [.writeable]
             )
+            // value: nil makes it dynamic — served via didReceiveRead and
+            // updatable via updateValue (a static value could never change).
+            let config = CBMutableCharacteristic(
+                type: configCharUUID,
+                properties: [.read, .notify],
+                value: nil,
+                permissions: [.readable]
+            )
+            configCharacteristic = config
             let service = CBMutableService(type: serviceUUID, primary: true)
-            service.characteristics = [characteristic]
+            service.characteristics = [input, config]
             peripheral.add(service)
         case .unauthorized:
             status = "Bluetooth permission denied — allow it in System Settings"
@@ -136,6 +177,34 @@ final class ReceiverModel: NSObject, ObservableObject, CBPeripheralManagerDelega
         print("Advertising as \"\(localName)\"; connect from the PiControl iOS app...")
     }
 
+    private var configData: Data {
+        var flags: UInt8 = 0
+        if wantMotion { flags |= 1 << 0 }
+        if wantAnalog { flags |= 1 << 1 }
+        return Data([configVersion, flags, UInt8(clamping: rateHz)])
+    }
+
+    private func pushConfig() {
+        guard let configCharacteristic, manager != nil else { return }
+        manager.updateValue(configData, for: configCharacteristic,
+                            onSubscribedCentrals: nil)
+    }
+
+    func peripheralManager(_ peripheral: CBPeripheralManager,
+                           didReceiveRead request: CBATTRequest) {
+        guard request.characteristic.uuid == configCharUUID else {
+            peripheral.respond(to: request, withResult: .attributeNotFound)
+            return
+        }
+        let data = configData
+        guard request.offset <= data.count else {
+            peripheral.respond(to: request, withResult: .invalidOffset)
+            return
+        }
+        request.value = data.subdata(in: request.offset..<data.count)
+        peripheral.respond(to: request, withResult: .success)
+    }
+
     func peripheralManager(_ peripheral: CBPeripheralManager,
                            didReceiveWrite requests: [CBATTRequest]) {
         for request in requests {
@@ -145,9 +214,11 @@ final class ReceiverModel: NSObject, ObservableObject, CBPeripheralManagerDelega
                     print("[\(stamp)] buttons=[\(snap.pressedNames)] dpad=\(snap.dpad)")
                     lastEdge = snap
                 }
-                snapshot = snap
+                latest = snap
                 lastPacket = Date()
-                status = "Receiving from PiControl app"
+                if status != "Receiving from PiControl app" {
+                    status = "Receiving from PiControl app"
+                }
 
                 windowCount += 1
                 let elapsed = Date().timeIntervalSince(windowStart)
@@ -271,6 +342,29 @@ struct DPadCross: View {
     }
 }
 
+struct AttitudeDial: View {
+    let label: String
+    let radians: Double
+
+    var body: some View {
+        VStack(spacing: 3) {
+            ZStack {
+                Circle()
+                    .stroke(Color.secondary.opacity(0.4), lineWidth: 1.5)
+                Capsule()
+                    .fill(Color.accentColor)
+                    .frame(width: 3, height: 20)
+                    .offset(y: -10)
+                    .rotationEffect(.radians(radians))
+            }
+            .frame(width: 44, height: 44)
+            Text(String(format: "%@ %+.0f°", label, radians * 180 / .pi))
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
 // MARK: - Main view
 
 struct ReceiverView: View {
@@ -315,6 +409,36 @@ struct ReceiverView: View {
                           clicked: model.snapshot.pressed("R3"))
             }
             .opacity(model.stale ? 0.35 : 1)
+
+            HStack(spacing: 22) {
+                AttitudeDial(label: "pitch", radians: model.snapshot.pitch)
+                AttitudeDial(label: "roll", radians: model.snapshot.roll)
+                AttitudeDial(label: "yaw", radians: model.snapshot.yaw)
+            }
+            .opacity(model.stale ? 0.35 : 1)
+
+            Divider()
+
+            // What this receiver asks of the phone; changes notify the
+            // phone live so its behavior can be watched above.
+            HStack(spacing: 16) {
+                Text("Request:")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Toggle("Motion", isOn: $model.wantMotion)
+                    .toggleStyle(.checkbox)
+                Toggle("Analog", isOn: $model.wantAnalog)
+                    .toggleStyle(.checkbox)
+                Picker("Rate", selection: $model.rateHz) {
+                    Text("15 Hz").tag(15)
+                    Text("30 Hz").tag(30)
+                    Text("60 Hz").tag(60)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 190)
+                Spacer()
+            }
+            .font(.caption)
         }
         .padding(16)
         .frame(minWidth: 540)

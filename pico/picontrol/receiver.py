@@ -3,13 +3,26 @@
 The Pico advertises the PiControl GATT service; the iPhone connects as
 central and streams input packets via write-without-response. Requires
 MicroPython >= 1.20 firmware for the Pico 2 W (aioble is bundled).
+
+The receiver also serves a config characteristic (read+notify) telling the
+phone what it wants: motion data, analog data, and packet rate. Change it
+mid-connection with `set_config(...)` — the phone applies it live.
 """
 
 import aioble
 import asyncio
 import bluetooth
 
-from .protocol import INPUT_CHAR_UUID, SERVICE_UUID, ProtocolError, decode
+from .protocol import (
+    CONFIG_CHAR_UUID,
+    DEFAULT_RATE_HZ,
+    INPUT_CHAR_UUID,
+    SERVICE_UUID,
+    InputTracker,
+    ProtocolError,
+    ReceiverConfig,
+    encode_config,
+)
 
 DEFAULT_NAME = "PiControl-pico"
 _ADV_INTERVAL_US = 250_000
@@ -25,14 +38,23 @@ class PiControlReceiver:
     advertises, serves one connection at a time, and re-advertises on
     disconnect; it only returns if cancelled. Optional hooks `on_connect(
     device)` and `on_disconnect()` track connection state.
+
+    `receiver.tracker` exposes the latest state plus button edges and
+    packet loss (see protocol.InputTracker).
     """
 
     def __init__(self, name=DEFAULT_NAME, on_state=None,
-                 on_connect=None, on_disconnect=None):
+                 on_connect=None, on_disconnect=None,
+                 wants_motion=True, wants_analog=True,
+                 rate_hz=DEFAULT_RATE_HZ):
         self.name = name
         self.on_state = on_state
         self.on_connect = on_connect
         self.on_disconnect = on_disconnect
+        self.tracker = InputTracker()
+        self.config = ReceiverConfig(wants_motion=wants_motion,
+                                     wants_analog=wants_analog,
+                                     rate_hz=rate_hz)
 
         service = aioble.Service(bluetooth.UUID(SERVICE_UUID))
         self._char = aioble.Characteristic(
@@ -42,7 +64,27 @@ class PiControlReceiver:
             write_no_response=True,
             capture=True,
         )
+        self._config_char = aioble.Characteristic(
+            service,
+            bluetooth.UUID(CONFIG_CHAR_UUID),
+            read=True,
+            notify=True,
+        )
         aioble.register_services(service)
+        self._config_char.write(encode_config(self.config))
+
+    def set_config(self, wants_motion=None, wants_analog=None, rate_hz=None):
+        """Update the served config and notify a connected phone.
+
+        Only the given fields change; the rest keep their current values.
+        """
+        if wants_motion is not None:
+            self.config.wants_motion = wants_motion
+        if wants_analog is not None:
+            self.config.wants_analog = wants_analog
+        if rate_hz is not None:
+            self.config.rate_hz = rate_hz
+        self._config_char.write(encode_config(self.config), send_update=True)
 
     async def run(self):
         while True:
@@ -67,7 +109,7 @@ class PiControlReceiver:
             except asyncio.TimeoutError:
                 continue
             try:
-                state = decode(data)
+                state = self.tracker.feed(data)
             except ProtocolError:
                 continue
             if self.on_state is not None:

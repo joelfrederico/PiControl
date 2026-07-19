@@ -14,7 +14,9 @@ from .protocol import (
     BUTTON_TOUCHPAD,
     BUTTON_TRIANGLE,
     ControllerState,
+    InputTracker,
     ProtocolError,
+    ReceiverConfig,
 )
 
 
@@ -28,8 +30,10 @@ def __getattr__(name):
 
 __all__ = [
     "ControllerState",
+    "InputTracker",
     "PiControlReceiver",
     "ProtocolError",
+    "ReceiverConfig",
     "BUTTON_CROSS",
     "BUTTON_CIRCLE",
     "BUTTON_SQUARE",

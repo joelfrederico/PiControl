@@ -24,10 +24,15 @@ final class BLECentralManager: NSObject, ObservableObject {
 
     @Published private(set) var state: ConnectionState = .initializing
     @Published private(set) var devices: [DiscoveredDevice] = []
+    /// What the connected receiver wants from us; defaults until (and
+    /// unless) its config characteristic says otherwise, and may change
+    /// mid-connection via notify.
+    @Published private(set) var receiverConfig = PiControlProtocol.ReceiverConfig()
 
     private var central: CBCentralManager!
     private var peripheral: CBPeripheral?
     private var inputCharacteristic: CBCharacteristic?
+    private var configCharacteristic: CBCharacteristic?
     private var sendTimer: Timer?
     private var seq: UInt8 = 0
 
@@ -63,9 +68,11 @@ final class BLECentralManager: NSObject, ObservableObject {
     }
 
     private func startSending() {
-        // 60 Hz input stream; each packet carries the full controller state,
-        // so an occasional dropped write-without-response is harmless.
-        sendTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
+        // Rate per the receiver's config (default 60 Hz); each packet
+        // carries the full controller state, so an occasional dropped
+        // write-without-response is harmless.
+        let interval = 1.0 / Double(receiverConfig.rateHz)
+        sendTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             self?.sendPacket()
         }
     }
@@ -80,7 +87,8 @@ final class BLECentralManager: NSObject, ObservableObject {
               peripheral.canSendWriteWithoutResponse else { return }
         seq &+= 1
         let packet = MainActor.assumeIsolated {
-            controllerState.encodePacket(seq: seq)
+            controllerState.encodePacket(seq: seq,
+                                         includeAnalog: receiverConfig.wantsAnalog)
         }
         peripheral.writeValue(packet, for: inputCharacteristic, type: .withoutResponse)
     }
@@ -89,6 +97,8 @@ final class BLECentralManager: NSObject, ObservableObject {
         stopSending()
         peripheral = nil
         inputCharacteristic = nil
+        configCharacteristic = nil
+        receiverConfig = PiControlProtocol.ReceiverConfig()
     }
 }
 
@@ -141,7 +151,9 @@ extension BLECentralManager: CBPeripheralDelegate {
             disconnect()
             return
         }
-        peripheral.discoverCharacteristics([PiControlProtocol.inputCharacteristicUUID], for: service)
+        peripheral.discoverCharacteristics([PiControlProtocol.inputCharacteristicUUID,
+                                            PiControlProtocol.configCharacteristicUUID],
+                                           for: service)
     }
 
     func peripheral(_ peripheral: CBPeripheral,
@@ -152,7 +164,32 @@ extension BLECentralManager: CBPeripheralDelegate {
             return
         }
         inputCharacteristic = characteristic
+
+        // Config characteristic is optional: read the initial value and
+        // subscribe for mid-connection changes. Both arrive through
+        // didUpdateValueFor. The send loop starts immediately with defaults;
+        // a config that arrives later just retunes it.
+        if let config = service.characteristics?
+            .first(where: { $0.uuid == PiControlProtocol.configCharacteristicUUID }) {
+            configCharacteristic = config
+            peripheral.readValue(for: config)
+            peripheral.setNotifyValue(true, for: config)
+        }
+
         state = .connected(name: peripheral.name ?? "PiControl")
         startSending()
+    }
+
+    func peripheral(_ peripheral: CBPeripheral,
+                    didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
+        guard characteristic.uuid == PiControlProtocol.configCharacteristicUUID,
+              error == nil else { return }
+        let config = PiControlProtocol.ReceiverConfig.decode(characteristic.value)
+        guard config != receiverConfig else { return }
+        receiverConfig = config
+        if sendTimer != nil {
+            stopSending()
+            startSending()
+        }
     }
 }

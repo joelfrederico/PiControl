@@ -14,6 +14,8 @@ from .protocol import (
     BUTTON_TOUCHPAD,
     BUTTON_TRIANGLE,
     ControllerState,
+    InputTracker,
     ProtocolError,
+    ReceiverConfig,
 )
 from .receiver import PiControlReceiver

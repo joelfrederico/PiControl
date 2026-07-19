@@ -1,0 +1,18 @@
+#!/bin/sh
+# Compile-and-run wrapper for fake_receiver.swift.
+#
+# Plain `swift fake_receiver.swift` (JIT script mode) fails with
+# "Symbols not found: [ ___isPlatformVersionAtLeast ]" once SwiftUI
+# controls like Toggle/Picker are involved — the interpreter doesn't
+# provide that availability-check builtin. Compiling links it fine, so
+# this builds to a cached binary (rebuilt when the source is newer) and
+# runs it.
+set -e
+cd "$(dirname "$0")"
+src=fake_receiver.swift
+bin="${TMPDIR:-/tmp}/picontrol-fake-receiver"
+if [ ! -x "$bin" ] || [ "$src" -nt "$bin" ]; then
+    echo "Compiling $src..."
+    swiftc -O "$src" -o "$bin"
+fi
+exec "$bin" "$@"

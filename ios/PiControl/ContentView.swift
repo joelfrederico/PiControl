@@ -145,6 +145,7 @@ struct DevicePickerView: View {
 struct ControllerView: View {
     @EnvironmentObject var ble: BLECentralManager
     @EnvironmentObject var state: ControllerState
+    @State private var motion: MotionManager?
 
     var body: some View {
         VStack(spacing: 12) {
@@ -179,6 +180,28 @@ struct ControllerView: View {
         }
         .padding(.vertical)
         .padding(.horizontal, 8)
+        .onAppear {
+            updateMotion(wanted: ble.receiverConfig.wantsMotion)
+        }
+        .onChange(of: ble.receiverConfig.wantsMotion) { _, wanted in
+            // Receivers can flip this mid-connection via a config notify.
+            updateMotion(wanted: wanted)
+        }
+        .onDisappear {
+            motion?.stop()
+        }
+    }
+
+    /// Stream attitude only while the controller screen is up AND the
+    /// receiver wants it — skipping CoreMotion saves phone battery.
+    private func updateMotion(wanted: Bool) {
+        if wanted {
+            let manager = motion ?? MotionManager(state: state)
+            motion = manager
+            manager.start()
+        } else {
+            motion?.stop()
+        }
     }
 }
 
