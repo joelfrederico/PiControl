@@ -7,6 +7,8 @@ import Foundation
 /// packets to the input characteristic at ~60 Hz via write-without-response.
 final class BLECentralManager: NSObject, ObservableObject {
     enum ConnectionState: Equatable {
+        /// Waiting for the first CoreBluetooth state callback after launch.
+        case initializing
         case bluetoothOff
         case scanning
         case connecting(name: String)
@@ -20,7 +22,7 @@ final class BLECentralManager: NSObject, ObservableObject {
         let peripheral: CBPeripheral
     }
 
-    @Published private(set) var state: ConnectionState = .bluetoothOff
+    @Published private(set) var state: ConnectionState = .initializing
     @Published private(set) var devices: [DiscoveredDevice] = []
 
     private var central: CBCentralManager!

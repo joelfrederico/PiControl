@@ -60,12 +60,15 @@ struct ContentView: View {
     var body: some View {
         Group {
             switch ble.state {
+            case .initializing:
+                SplashView()
             case .connected:
                 ControllerView()
             default:
                 DevicePickerView()
             }
         }
+        .animation(.easeOut(duration: 0.25), value: ble.state)
         // Applied at the root (not on ControllerView) so the preference is
         // active from launch: iOS defers edge touches for Control Center /
         // notification / home-indicator swipes, which made edge buttons feel
@@ -73,6 +76,24 @@ struct ContentView: View {
         // appears later.
         .defersSystemGestures(on: .all)
         .persistentSystemOverlays(.hidden)
+    }
+}
+
+// MARK: - Splash
+
+/// Mirrors the static system launch screen (same image and background from
+/// the asset catalog) and adds a spinner, so launch appears to animate: the
+/// OS shows the static image until the app runs, then this takes over
+/// seamlessly until Bluetooth reports its first state.
+struct SplashView: View {
+    var body: some View {
+        ZStack {
+            Color("LaunchBackground").ignoresSafeArea()
+            Image("LaunchLogo")
+            ProgressView()
+                .controlSize(.large)
+                .offset(y: 95)
+        }
     }
 }
 
