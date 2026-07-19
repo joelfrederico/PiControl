@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <!-- Light background wash -->
+    <radialGradient id="bg" cx="0.4" cy="0.32" r="1.0">
+      <stop offset="0" stop-color="#FDF6F8"/>
+      <stop offset="0.6" stop-color="#F8E7ED"/>
+      <stop offset="1" stop-color="#EFD3DD"/>
+    </radialGradient>
+    <!-- Raspberry body gradient -->
+    <linearGradient id="body" x1="0" y1="0" x2="0.25" y2="1">
+      <stop offset="0" stop-color="#E23D75"/>
+      <stop offset="0.55" stop-color="#C2255C"/>
+      <stop offset="1" stop-color="#9C1A4B"/>
+    </linearGradient>
+    <!-- Sheen across the top of the controller (userSpace so it spans the
+         whole silhouette instead of restarting per shape) -->
+    <linearGradient id="sheen" gradientUnits="userSpaceOnUse"
+                    x1="512" y1="385" x2="512" y2="620">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.32"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <!-- Subtle dot-grid texture (pure vector; feTurbulence renders
+         inconsistently across SVG engines) -->
+    <pattern id="dots" width="28" height="28" patternUnits="userSpaceOnUse"
+             patternTransform="rotate(-8)">
+      <circle cx="7" cy="7" r="2.2" fill="#C2255C" opacity="0.07"/>
+      <circle cx="21" cy="21" r="2.2" fill="#C2255C" opacity="0.05"/>
+    </pattern>
+    <!-- Soft drop shadow under the controller -->
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="26" stdDeviation="34" flood-color="#7A1038" flood-opacity="0.30"/>
+    </filter>
+  </defs>
+
+  <!-- Background: full bleed, iOS applies the corner mask itself -->
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <rect width="1024" height="1024" fill="url(#dots)"/>
+
+  <!-- Controller, tilted -->
+  <g transform="translate(512 452) rotate(-8) scale(1.47) translate(-512 -512)" filter="url(#shadow)">
+    <!-- Silhouette: rounded body + two angled grip lobes -->
+    <g fill="url(#body)">
+      <rect x="252" y="392" width="520" height="240" rx="120"/>
+      <ellipse cx="332" cy="560" rx="96" ry="152" transform="rotate(-22 332 560)"/>
+      <ellipse cx="692" cy="560" rx="96" ry="152" transform="rotate(22 692 560)"/>
+    </g>
+    <!-- Top sheen clipped to the body shape -->
+    <g fill="url(#sheen)">
+      <rect x="252" y="392" width="520" height="240" rx="120"/>
+      <ellipse cx="332" cy="560" rx="96" ry="152" transform="rotate(-22 332 560)"/>
+      <ellipse cx="692" cy="560" rx="96" ry="152" transform="rotate(22 692 560)"/>
+    </g>
+
+    <!-- D-pad -->
+    <g fill="#FFF0F5">
+      <rect x="321" y="487" width="29.9" height="86" rx="9"/>
+      <rect x="293" y="515" width="86" height="29.9" rx="9"/>
+    </g>
+
+    <!-- Face buttons -->
+    <g fill="#FFF0F5">
+      <circle cx="690" cy="502" r="15"/>
+      <circle cx="718" cy="530" r="15"/>
+      <circle cx="690" cy="558" r="15"/>
+      <circle cx="662" cy="530" r="15"/>
+    </g>
+
+    <!-- Center pills -->
+    <g fill="#FFF0F5" opacity="0.85">
+      <rect x="474" y="432" width="34" height="14" rx="7"/>
+      <rect x="516" y="432" width="34" height="14" rx="7"/>
+    </g>
+  </g>
+</svg>

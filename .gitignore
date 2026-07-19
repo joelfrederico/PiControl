@@ -10,9 +10,17 @@ build/
 
 # Xcode
 ios/PiControl.xcodeproj/
+ios/PiControl/Info.plist
+
+# Rendered from ios/icon/*.svg by ios/icon/generate.sh
+ios/PiControl/Assets.xcassets/AppIcon.appiconset/AppIcon.png
+ios/PiControl/Assets.xcassets/LaunchLogo.imageset/LaunchLogo@*.png
 xcuserdata/
 DerivedData/
 *.xcuserstate
 
 # macOS
 .DS_Store
+
+# VSCode
+*.code-workspace

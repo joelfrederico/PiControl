@@ -76,23 +76,26 @@ struct ControllerView: View {
                 HoldButton(label: "R2", button: .r2Trigger)
             }
 
-            HStack(alignment: .center, spacing: 24) {
-                VStack(spacing: 16) {
-                    DPadView()
-                    ThumbstickView(stick: \.leftStick, thumbButton: .l3)
-                }
+            HStack(alignment: .center) {
+                DPadView()
+                Spacer()
                 VStack(spacing: 8) {
                     HoldButton(label: "Create", button: .create, small: true)
                     HoldButton(label: "PS", button: .ps, small: true)
                     HoldButton(label: "Options", button: .options, small: true)
                 }
-                VStack(spacing: 16) {
-                    FaceButtonsView()
-                    ThumbstickView(stick: \.rightStick, thumbButton: .r3)
-                }
+                Spacer()
+                FaceButtonsView()
+            }
+
+            HStack {
+                ThumbstickView(stick: \.leftStick, thumbButton: .l3)
+                Spacer()
+                ThumbstickView(stick: \.rightStick, thumbButton: .r3)
             }
         }
-        .padding()
+        .padding(.vertical)
+        .padding(.horizontal, 8)
     }
 }
 

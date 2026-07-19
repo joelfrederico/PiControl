@@ -13,8 +13,10 @@ The Swift sources are complete; only the `.xcodeproj` needs generating.
 **Option A — XcodeGen** (easiest):
 
 ```sh
-brew install xcodegen
-cd ios && xcodegen generate
+brew install xcodegen librsvg
+cd ios
+./icon/generate.sh   # render app icon + launch logo PNGs from the SVG sources
+xcodegen generate
 open PiControl.xcodeproj
 ```
 
