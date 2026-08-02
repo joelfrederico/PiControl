@@ -162,6 +162,27 @@ cd pi5 && python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
 - The `seq` byte increments only on packets actually sent, so consecutive
   seq values at the receiver do NOT prove no 60 Hz ticks were skipped —
   watch the receiver's pkt/s display instead.
+- **Three bless landmines, all fixed in `receiver.py` — don't undo them.**
+  Each produced a *silent* failure (no traceback, library still logging
+  "advertising"), and the first two cost hours before the Swift fake
+  receiver was written to work around them:
+  1. `server.start(prioritize_local_name=False)` is mandatory. Left at its
+     default (`True`), bless's CoreBluetooth backend drops **every service
+     UUID** from the advertisement when the name is over 10 characters
+     ("PiControl-pi5" is 13). The phone scans filtered by service UUID, so
+     the receiver is simply invisible.
+  2. The config/haptics characteristics must be created with **no initial
+     value**. A characteristic with a cached value is read-only by
+     definition, and CoreBluetooth rejects the whole service
+     ("Characteristics with cached values must be read-only") since ours
+     also notify. Reads are answered live in `_on_read` instead.
+  3. Packets must be marshalled onto the event loop with
+     `call_soon_threadsafe`. BlueZ delivers writes on the loop but
+     CoreBluetooth uses its own dispatch queue, and `asyncio.Queue` is not
+     thread-safe: `put_nowait` off-loop enqueues without waking the loop,
+     so `states()` hangs forever while the `on_state` callback still works.
+     A bug that only appears on one backend is the worst kind — keep all
+     packet handling on the loop.
 - **Never publish per-packet state to a UI.** Attitude noise makes every
   60 Hz packet unique; when the fake receiver published each one, SwiftUI
   re-rendered per packet on the same main queue CoreBluetooth delivers on,

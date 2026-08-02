@@ -93,9 +93,11 @@ class PiControlReceiver:
         self.haptics = HapticsCommand()
         self._server = None
         self._queue = asyncio.Queue()
+        self._loop = None
 
     async def start(self):
         _use_legacy_advertising()
+        self._loop = asyncio.get_running_loop()
         self._server = BlessServer(name=self.name)
         self._server.write_request_func = self._on_write
         self._server.read_request_func = self._on_read
@@ -108,12 +110,17 @@ class PiControlReceiver:
             None,
             GATTAttributePermissions.writeable,
         )
+        # Both of these are served with no initial value: a characteristic
+        # created *with* one is a cached, read-only attribute (CoreBluetooth
+        # rejects the service outright: "Characteristics with cached values
+        # must be read-only"), and these have to notify. Reads are answered
+        # live by _on_read, updates pushed by set_config/set_haptics.
         await self._server.add_new_characteristic(
             SERVICE_UUID,
             CONFIG_CHAR_UUID,
             (GATTCharacteristicProperties.read
              | GATTCharacteristicProperties.notify),
-            encode_config(self.config),
+            None,
             GATTAttributePermissions.readable,
         )
         await self._server.add_new_characteristic(
@@ -121,10 +128,16 @@ class PiControlReceiver:
             HAPTICS_CHAR_UUID,
             (GATTCharacteristicProperties.read
              | GATTCharacteristicProperties.notify),
-            encode_haptics(self.haptics),
+            None,
             GATTAttributePermissions.readable,
         )
-        await self._server.start()
+        # prioritize_local_name=False is required, not cosmetic: bless's
+        # CoreBluetooth backend drops *all* service UUIDs from the
+        # advertisement when it's true and the name is over 10 characters
+        # ("PiControl-pi5" is 13). The phone scans filtered by service UUID,
+        # so a name-only advertisement is invisible to it. Ignored by the
+        # BlueZ backend, whose start() takes **kwargs.
+        await self._server.start(prioritize_local_name=False)
         logger.info("advertising as %r (service %s, config %r)",
                     self.name, SERVICE_UUID, self.config)
 
@@ -176,9 +189,28 @@ class PiControlReceiver:
             yield await self._queue.get()
 
     def _on_read(self, characteristic, **kwargs):
+        uuid = str(characteristic.uuid).lower()
+        if uuid == CONFIG_CHAR_UUID:
+            return encode_config(self.config)
+        if uuid == HAPTICS_CHAR_UUID:
+            return encode_haptics(self.haptics)
         return characteristic.value
 
     def _on_write(self, characteristic, value, **kwargs):
+        # Backends differ on which thread they deliver writes: BlueZ calls us
+        # on the event loop, CoreBluetooth on one of its own dispatch queues.
+        # asyncio.Queue isn't thread-safe — put_nowait from another thread
+        # queues the item but never wakes the loop, so states() hangs forever
+        # — so hop onto the loop before touching any of our state.
+        if self._loop is None:
+            self._handle_packet(value)
+        else:
+            self._loop.call_soon_threadsafe(self._handle_packet, value)
+
+    def _handle_packet(self, value):
+        """Decode and dispatch one packet. Always runs on the event loop, so
+        on_state callbacks and the states() iterator can safely call back
+        into the receiver (e.g. set_haptics)."""
         try:
             state = self.tracker.feed(value)
         except ProtocolError as exc:
