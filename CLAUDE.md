@@ -56,6 +56,23 @@ Rules, enforced partly by tests:
   state, button edges, seq-gap loss counting) — *staleness* detection stays
   in receivers, because MicroPython has no portable wall clock. Don't move
   clock-based logic into `protocol.py`.
+- **Everything must work with legacy (non-extended) advertising.** The Pi's
+  onboard radio has no extended advertising, and nothing here needs it: the
+  ADV payload is flags + one 128-bit service UUID (21 bytes), with the
+  device name in the scan response. Two rules follow:
+  1. Don't add a second advertised UUID or manufacturer data without
+     re-checking that 31-byte budget. Service *characteristics* are free
+     (they're GATT, not advertising), so new features should add
+     characteristics — never advertised UUIDs.
+  2. `receiver.py` calls `_use_legacy_advertising()` before starting the
+     bless server, which deletes `TxPower`/`MinInterval`/`MaxInterval` from
+     bless's `LEAdvertisement1` object. BlueZ gates those three on the
+     MGMT_ADV_PARAM_* flags that only extended-advertising controllers
+     report, so leaving them exported makes `RegisterAdvertisement` fail on
+     a Pi and the receiver never shows up. Don't remove that call, and
+     re-check it after a bless upgrade (it's patching a third-party
+     default we never wanted).
+
 Attitude fields (v2): radians × 32767/π as i16, portrait device frame,
 fused by CoreMotion (`.xArbitraryZVertical`). Yaw has an arbitrary zero — no
 magnetometer — so receivers should use attitude *changes* (e.g. steering),

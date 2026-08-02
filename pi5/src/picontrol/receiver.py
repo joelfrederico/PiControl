@@ -37,6 +37,32 @@ logger = logging.getLogger(__name__)
 DEFAULT_NAME = "PiControl-pi5"
 
 
+def _use_legacy_advertising():
+    """Keep bless's advertisement within legacy (non-extended) advertising.
+
+    bless always exports TxPower, MinInterval and MaxInterval on its
+    LEAdvertisement1 object. BlueZ accepts those three only when the
+    controller supports *extended* advertising — it gates them on the
+    MGMT_ADV_PARAM_* feature flags — so on radios without it (notably the
+    Raspberry Pi's onboard chip) RegisterAdvertisement is rejected and the
+    receiver never appears. We only ever leave them at bless's defaults, so
+    drop them from the exported interface and let BlueZ advertise the
+    ordinary legacy way.
+
+    No-op off the BlueZ backend (e.g. macOS/CoreBluetooth).
+    """
+    try:
+        from bless.backends.bluezdbus.dbus.advertisement import (
+            BlueZLEAdvertisement,
+        )
+    except ImportError:
+        return
+    for name in ("TxPower", "MinInterval", "MaxInterval"):
+        if hasattr(BlueZLEAdvertisement, name):
+            delattr(BlueZLEAdvertisement, name)
+            logger.debug("removed experimental advertising property %s", name)
+
+
 class PiControlReceiver:
     """Advertise the PiControl service and receive ControllerState updates.
 
@@ -69,6 +95,7 @@ class PiControlReceiver:
         self._queue = asyncio.Queue()
 
     async def start(self):
+        _use_legacy_advertising()
         self._server = BlessServer(name=self.name)
         self._server.write_request_func = self._on_write
         self._server.read_request_func = self._on_read
