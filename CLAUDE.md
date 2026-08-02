@@ -183,6 +183,32 @@ cd pi5 && python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
      so `states()` hangs forever while the `on_state` callback still works.
      A bug that only appears on one backend is the worst kind — keep all
      packet handling on the loop.
+- **BlueZ's `battery` plugin drops every Linux session at ~30 s.** The
+  symptom is maximally misleading: input streams at exactly the requested
+  rate with zero packet loss, then the link dies — no degradation, no
+  stutter, nothing in the receiver's logs. It looks like an app bug and is
+  not. `bluetoothd` also acts as a GATT *client* against the phone and reads
+  its Battery Level (`0x2a19`); iOS guards that behind encryption and answers
+  `Insufficient Authentication`, so BlueZ escalates to an SMP `Security
+  Request` demanding MITM. Both ends then claim a display (Pi
+  `DisplayYesNo`, phone `KeyboardDisplay`), so SMP selects **numeric
+  comparison** — a prompt appears on the phone that a headless Pi has no
+  agent to answer, and the spec-mandated 30 s SMP timeout tears the link
+  down with `Authentication Failure`. Nothing in PiControl needs encryption
+  or bonding — the input characteristic is unauthenticated by design — so
+  remove the probe rather than registering an auto-accepting agent, which
+  would still bond the phone and still prompt:
+
+  ```
+  # /etc/systemd/system/bluetooth.service.d/no-battery-plugin.conf
+  [Service]
+  ExecStart=
+  ExecStart=/usr/libexec/bluetooth/bluetoothd --noplugin=battery
+  ```
+
+  Diagnose with `sudo btmon`: a `Disconnect … Reason: Authentication
+  Failure` about 30 s after `LE Connection Complete` is this and nothing
+  else. Don't chase it in receiver code.
 - **Never publish per-packet state to a UI.** Attitude noise makes every
   60 Hz packet unique; when the fake receiver published each one, SwiftUI
   re-rendered per packet on the same main queue CoreBluetooth delivers on,
