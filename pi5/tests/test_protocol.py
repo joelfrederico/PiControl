@@ -162,6 +162,28 @@ def test_haptics_clamped():
     assert decoded.sharpness == 0.0
 
 
+def test_attitude_to_stick():
+    import math
+    full = math.radians(45)
+    assert protocol.attitude_to_stick(0, full) == 0
+    assert protocol.attitude_to_stick(full, full) == 127
+    assert protocol.attitude_to_stick(-full, full) == -127
+    assert protocol.attitude_to_stick(full * 2, full) == 127  # clamps
+    assert protocol.attitude_to_stick(full / 2, full) == 64
+    assert protocol.attitude_to_stick(1.0, 0) == 0  # degenerate range
+
+
+def test_rumble_to_haptics():
+    assert protocol.rumble_to_haptics(0, 0) == (0.0, 0.5)
+    intensity, sharpness = protocol.rumble_to_haptics(65535, 0)
+    assert intensity == 1.0 and sharpness == 0.0  # strong only: dull
+    intensity, sharpness = protocol.rumble_to_haptics(0, 65535)
+    assert intensity == 1.0 and sharpness == 1.0  # weak only: sharp
+    intensity, sharpness = protocol.rumble_to_haptics(32768, 32768)
+    assert intensity == pytest.approx(0.5, abs=0.01)
+    assert sharpness == 0.5
+
+
 def test_pico_copy_is_identical():
     """pico/picontrol/protocol.py must stay a verbatim copy of the pi5 one."""
     pi5 = REPO_ROOT / "pi5" / "src" / "picontrol" / "protocol.py"

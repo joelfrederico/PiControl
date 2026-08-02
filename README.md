@@ -115,7 +115,11 @@ One receiver at a time:
 1. **Pi 5**: `pip install "picontrol[uinput] @ file://$(pwd)/pi5"`, run
    `sudo picontrol-dualsense`, connect from the iOS app, and check
    `evtest /dev/input/event*` — a "DualSense Wireless Controller" device should
-   appear and emit events as you touch the on-screen controls.
+   appear and emit events as you touch the on-screen controls. The virtual
+   pad advertises FF_RUMBLE: when a game plays a rumble effect, the phone
+   vibrates. Add `--motion-steering pitch` (or roll/yaw, with
+   `--motion-range` degrees for full deflection) to steer the left stick X
+   by tilting the phone.
 2. **Pico 2 W**: upload `pico/picontrol/` and `pico/examples/main.py`, connect from
    the app, and watch the onboard LED track the cross button while stick values
    print to the console.

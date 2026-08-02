@@ -56,7 +56,6 @@ Rules, enforced partly by tests:
   state, button edges, seq-gap loss counting) — *staleness* detection stays
   in receivers, because MicroPython has no portable wall clock. Don't move
   clock-based logic into `protocol.py`.
-
 Attitude fields (v2): radians × 32767/π as i16, portrait device frame,
 fused by CoreMotion (`.xArbitraryZVertical`). Yaw has an arbitrary zero — no
 magnetometer — so receivers should use attitude *changes* (e.g. steering),
@@ -161,6 +160,11 @@ cd pi5 && python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
    instantly — if a button needs *holding* to register, you've reintroduced
    the gesture-gate bug (see above).
 4. `cd pi5 && .venv/bin/python -m pytest` for the protocol.
+
+Note: `uinput_sink.py` (virtual DualSense, FF rumble) is Linux-only —
+`evdev` doesn't install on macOS, so it can only be syntax-checked here
+(`python -m py_compile`). Its FF read-loop and effect handling must be
+verified on an actual Pi with `evtest`/`fftest` or a game.
 
 ## House style
 

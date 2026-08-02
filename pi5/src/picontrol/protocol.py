@@ -298,3 +298,33 @@ def decode_haptics(data):
     if version != HAPTICS_VERSION:
         return HapticsCommand()
     return HapticsCommand(intensity=intensity / 255, sharpness=sharpness / 255)
+
+
+# Mapping helpers for receiver-side consumers (uinput sink, robot code).
+
+
+def attitude_to_stick(radians, full_range):
+    """Scale an attitude angle to a stick axis value (-127..127).
+
+    `full_range` is the tilt (radians) that maps to full deflection;
+    beyond it the value clamps. Useful for steering-by-tilt on any
+    receiver.
+    """
+    if full_range <= 0:
+        return 0
+    fraction = max(-1.0, min(1.0, radians / full_range))
+    return int(round(fraction * 127))
+
+
+def rumble_to_haptics(strong, weak):
+    """Map dual-motor rumble magnitudes (0-65535, as in evdev FF_RUMBLE
+    and game controller APIs) to a (intensity, sharpness) pair for
+    set_haptics(). The strong motor is the low-frequency one, so the
+    weak/strong balance drives sharpness.
+    """
+    total = strong + weak
+    if total <= 0:
+        return (0.0, 0.5)
+    intensity = min(1.0, max(strong, weak) / 65535)
+    sharpness = weak / total
+    return (intensity, sharpness)

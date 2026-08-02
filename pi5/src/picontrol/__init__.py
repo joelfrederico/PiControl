@@ -18,6 +18,8 @@ from .protocol import (
     InputTracker,
     ProtocolError,
     ReceiverConfig,
+    attitude_to_stick,
+    rumble_to_haptics,
 )
 
 
@@ -48,4 +50,6 @@ __all__ = [
     "BUTTON_OPTIONS",
     "BUTTON_PS",
     "BUTTON_TOUCHPAD",
+    "attitude_to_stick",
+    "rumble_to_haptics",
 ]

@@ -18,5 +18,7 @@ from .protocol import (
     InputTracker,
     ProtocolError,
     ReceiverConfig,
+    attitude_to_stick,
+    rumble_to_haptics,
 )
 from .receiver import PiControlReceiver
